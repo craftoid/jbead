@@ -130,6 +130,8 @@ import ch.jbead.view.SimulationPanel;
 
 public class JBeadFrame extends JFrame implements Localization, View, ModelListener, VersionListener {
 
+    private static final int ONE_DAY = 86400;
+
     private static final long serialVersionUID = 1L;
 
     private static final int SHIFTING_INTERVAL = 150;
@@ -247,6 +249,18 @@ public class JBeadFrame extends JFrame implements Localization, View, ModelListe
             }
         });
 
+        setupUpdateTimer();
+
+        handleCommandLineArgs(args);
+
+        checkVersionUpdate();
+
+        if (Platform.isMacOSX()) {
+            initMacOSX();
+        }
+    }
+
+    private void setupUpdateTimer() {
         updateTimer = new Timer("updateTimer", true);
         updateTimer.schedule(new TimerTask() {
             @Override
@@ -254,9 +268,9 @@ public class JBeadFrame extends JFrame implements Localization, View, ModelListe
                 updateHandler();
             }
         }, UPDATE_INTERVAL, UPDATE_INTERVAL);
+    }
 
-        handleCommandLineArgs(args);
-
+    private void checkVersionUpdate() {
         settings.setCategory("update");
         if (settings.loadBoolean("check_at_start", true)) {
             Timer timer = new Timer("updatecheck");
@@ -266,10 +280,6 @@ public class JBeadFrame extends JFrame implements Localization, View, ModelListe
                     new VersionChecker(JBeadFrame.this).check();
                 }
             }, 2000);
-        }
-
-        if (Platform.isMacOSX()) {
-            initMacOSX();
         }
     }
 
@@ -620,35 +630,35 @@ public class JBeadFrame extends JFrame implements Localization, View, ModelListe
     }
 
     public boolean isDraftVisible() {
-        return viewDraft.isVisible();
+        return viewDraft.isSelected();
     }
 
     public boolean isCorrectedVisible() {
-        return viewCorrected.isVisible();
+        return viewCorrected.isSelected();
     }
 
     public boolean isSimulationVisible() {
-        return viewSimulation.isVisible();
+        return viewSimulation.isSelected();
     }
 
     public boolean isReportVisible() {
-        return viewReport.isVisible();
+        return viewReport.isSelected();
     }
 
     public void setDraftVisible(boolean visible) {
-        viewDraft.setVisible(visible);
+        viewDraft.setSelected(visible);
     }
 
     public void setCorrectedVisible(boolean visible) {
-        viewCorrected.setVisible(visible);
+        viewCorrected.setSelected(visible);
     }
 
     public void setSimulationVisible(boolean visible) {
-        viewSimulation.setVisible(visible);
+        viewSimulation.setSelected(visible);
     }
 
     public void setReportVisible(boolean visible) {
-        viewReport.setVisible(visible);
+        viewReport.setSelected(visible);
     }
 
     public void initDefaultSymbols() {
@@ -756,18 +766,18 @@ public class JBeadFrame extends JFrame implements Localization, View, ModelListe
         dialog.setMultiSelectionEnabled(false);
         setSaveFileFilters(dialog);
         if (dialog.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-            if (dialog.getSelectedFile().exists()) {
-                String msg = getString("fileexists");
-                msg = msg.replace("{1}", dialog.getSelectedFile().getName());
-                if (JOptionPane.showConfirmDialog(this, msg, "Overwrite", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) {
-                    return false;
-                }
-            }
             FileFormat oldFileFormat = fileformat;
             updateFileFormat(dialog.getFileFilter(), dialog.getSelectedFile());
             File file = dialog.getSelectedFile();
-            if (file.getName().indexOf('.') == -1) {
+            if (!file.getName().endsWith(fileformat.getExtension())) {
                 file = new File(file.getParentFile(), file.getName() + fileformat.getExtension());
+            }
+            if (file.exists()) {
+                String msg = getString("fileexists");
+                msg = msg.replace("{1}", file.getName());
+                if (JOptionPane.showConfirmDialog(this, msg, "Overwrite", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) {
+                    return false;
+                }
             }
             if (fileSaveClick(true, file)) {
                 model.setFile(file);
@@ -782,103 +792,12 @@ public class JBeadFrame extends JFrame implements Localization, View, ModelListe
         return false;
     }
 
-    private void draftLinePreview() {
-        if (!toolsGroup.isSelected("pencil")) return;
-        if (!selection.isActive()) return;
-        draft.linePreview(selection.getOrigin(), selection.getLineDest());
+    public boolean isDragging() {
+        return dragging;
     }
 
-    private void drawPrepress() {
-        if (toolsGroup.isSelected("pencil")) {
-            draft.drawPrepress(selection.getOrigin());
-        }
-    }
-
-    public void draftMouseDown(MouseEvent event) {
-        if (dragging) return;
-        Point pt = new Point(event.getX(), event.getY());
-        if (event.getButton() == MouseEvent.BUTTON1) {
-            pt = draft.mouseToField(pt);
-            if (pt == null) return;
-            dragging = true;
-            selection.init(pt);
-            drawPrepress();
-            draftLinePreview();
-        }
-    }
-
-    public void draftMouseMove(MouseEvent event) {
-        Point pt = new Point(event.getX(), event.getY());
-        if (dragging) {
-            pt = draft.mouseToField(pt);
-            if (pt == null) return;
-            draftLinePreview();
-            selection.update(pt);
-            draftLinePreview();
-        }
-    }
-
-    public void draftMouseUp(MouseEvent event) {
-        Point pt = new Point(event.getX(), event.getY());
-        if (dragging) {
-            pt = draft.mouseToField(pt);
-            if (pt == null) return;
-            draftLinePreview();
-            selection.update(pt);
-            dragging = false;
-            if (toolsGroup.isSelected("pencil")) {
-                if (!selection.isActive()) {
-                    setPoint(selection.getOrigin());
-                } else {
-                    drawLine(selection.getOrigin(), selection.getLineDest());
-                }
-            } else if (toolsGroup.isSelected("fill")) {
-                fillLine(selection.getOrigin());
-            } else if (toolsGroup.isSelected("pipette")) {
-                selectColorFrom(selection.getOrigin());
-            } else if (toolsGroup.isSelected("select")) {
-                if (!selection.isActive()) {
-                    setPoint(selection.getOrigin());
-                }
-            }
-        }
-    }
-
-    public void correctedMouseUp(MouseEvent event) {
-        if (event.getButton() == MouseEvent.BUTTON1) {
-            if (toolsGroup.isSelected("fill")) {
-                corrected.fillLine(new Point(event.getX(), event.getY()));
-            } else {
-                corrected.togglePoint(new Point(event.getX(), event.getY()));
-            }
-        }
-    }
-
-    public void simulationMouseUp(MouseEvent event) {
-        if (event.getButton() == MouseEvent.BUTTON1) {
-            if (toolsGroup.isSelected("fill")) {
-                simulation.fillLine(new Point(event.getX(), event.getY()));
-            } else {
-                simulation.togglePoint(new Point(event.getX(), event.getY()));
-            }
-        }
-    }
-
-    private void selectColorFrom(Point pt) {
-        byte colorIndex = model.get(pt.scrolled(model.getScroll()));
-        colors.selectColor(colorIndex);
-    }
-
-    private void drawLine(Point begin, Point end) {
-        model.drawLine(begin, end);
-    }
-
-    private void fillLine(Point pt) {
-        model.fillLine(pt);
-    }
-
-    private void setPoint(Point pt) {
-        model.setPoint(pt);
+    public void setDragging(boolean dragging) {
+        this.dragging = dragging;
     }
 
     public void updateVisibility() {
@@ -1183,12 +1102,20 @@ public class JBeadFrame extends JFrame implements Localization, View, ModelListe
         toolsGroup.selectTool(tool);
     }
 
-    public void versionAvailabe(final Version version) {
+    public void versionAvailable(final Version version) {
+        settings.setCategory("update");
+        long lastCheck = settings.loadLong("lastcheck");
+        if (elapsedSince(lastCheck) < ONE_DAY) return;
+        settings.saveLong("lastcheck", System.currentTimeMillis());
         SwingUtilities.invokeLater(new Runnable() {
             public void run() {
                 JOptionPane.showMessageDialog(JBeadFrame.this, getString("updatecheck.updateavailable").replace("{1}", version.getVersionString()));
             }
         });
+    }
+
+    private long elapsedSince(long time) {
+        return System.currentTimeMillis() - time;
     }
 
     public void versionUpToDate() {
@@ -1209,5 +1136,9 @@ public class JBeadFrame extends JFrame implements Localization, View, ModelListe
 
     public void refresh() {
         fireDrawSymbolsChanged();
+    }
+
+    public void selectColor(byte colorIndex) {
+        colors.selectColor(colorIndex);
     }
 }
